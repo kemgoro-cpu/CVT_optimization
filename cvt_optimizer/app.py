@@ -19,7 +19,7 @@ def main() -> None:
     st.set_page_config(
         page_title="CVT Optimizer",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="auto",
     )
     apply_app_theme()
 
