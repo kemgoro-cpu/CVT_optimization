@@ -127,6 +127,8 @@ rtk python -m cvt_optimizer.cli optimize `
 - `--max-delta-rpm`: 現行マップからの変更量を±rpmで制限
 - `--min-rpm`, `--max-rpm`: 使用回転数範囲を制限
 - `--smooth-passes`, `--smooth-weight`: 隣接セルの段差をなだらかにする
+- `--monotonic-speed`: 車速方向でRPMを単調増加にする
+- `--monotonic-throttle`: アクセル開度方向でRPMを単調増加にする
 - アクセル開度方向の単調性: 高アクセルで回転数が低くなりすぎないようにする
 - 車速方向の連続性: 車速が少し変わっただけで回転数が急変しないようにする
 - 高アクセル領域の性能優先: 例えばアクセル80%以上は更新しない、または改善幅を小さくする

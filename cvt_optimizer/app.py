@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 from cvt_optimizer.io import read_drive_table
 from cvt_optimizer.maps import BilinearMap
@@ -58,6 +57,15 @@ def main() -> None:
             max_delta = optional_number("最大変更RPM", "")
             smooth_passes = st.number_input("平滑化回数", min_value=0, value=0, step=1)
             smooth_weight = st.slider("平滑化強さ", 0.0, 1.0, 0.15, 0.05)
+            monotonic_enabled = st.toggle("単調増加制約", value=False)
+            monotonic_speed_selected = st.checkbox(
+                "車速方向", value=True, disabled=not monotonic_enabled
+            )
+            monotonic_throttle_selected = st.checkbox(
+                "アクセル方向", value=True, disabled=not monotonic_enabled
+            )
+            monotonic_speed = monotonic_enabled and monotonic_speed_selected
+            monotonic_throttle = monotonic_enabled and monotonic_throttle_selected
 
     render_page_header()
     render_section_header("INPUT MAPS", "マップ入力")
@@ -112,6 +120,8 @@ def main() -> None:
                 max_delta_rpm=max_delta,
                 smooth_passes=int(smooth_passes),
                 smooth_weight=float(smooth_weight),
+                monotonic_speed=monotonic_speed,
+                monotonic_throttle=monotonic_throttle,
             )
             result = optimize_cvt_map(drive, cvt_map, bsfc_map, columns, options)
     except Exception as exc:  # noqa: BLE001 - Streamlit should surface data issues.
@@ -157,6 +167,12 @@ def main() -> None:
                     "points",
                 ),
                 use_container_width=True,
+            )
+            st.markdown(
+                '<p class="chart-note"><strong>走行点カバレッジ</strong>は、各セルに'
+                '割り当てられた有効走行点の件数です。濃いほど、その速度×アクセル開度領域を'
+                '走行した回数が多いことを示します。</p>',
+                unsafe_allow_html=True,
             )
 
     render_section_header("EXPORT", "出力")
@@ -437,6 +453,21 @@ def apply_app_theme() -> None:
             color: var(--accent);
         }
 
+        .chart-note {
+            background: #e7efef;
+            border: 1px solid #c2d0d2;
+            border-radius: 4px;
+            color: #40545b !important;
+            font-size: 0.82rem;
+            line-height: 1.55;
+            margin: -0.25rem 0 0;
+            padding: 0.7rem 0.8rem;
+        }
+
+        .chart-note strong {
+            color: #1f373d;
+        }
+
         @media (max-width: 800px) {
             [data-testid="stMainBlockContainer"] {
                 padding: 1rem 1rem 3rem;
@@ -682,6 +713,7 @@ def bsfc_contour_figure(
         margin=dict(l=72, r=42, t=92, b=70),
     )
     apply_chart_axes(fig)
+    add_map_gridlines(fig, bsfc_map.x_axis, bsfc_map.y_axis)
     return fig
 
 
@@ -691,29 +723,10 @@ def cvt_map_comparison_figure(
 ) -> go.Figure:
     z_min = float(np.nanmin([np.nanmin(current_map.values), np.nanmin(optimized_values)]))
     z_max = float(np.nanmax([np.nanmax(current_map.values), np.nanmax(optimized_values)]))
-    colorscale = [
-        [0.0, "#f3f5f4"],
-        [0.25, "#dbe5e2"],
-        [0.5, "#b5cdca"],
-        [0.75, "#86a9aa"],
-        [1.0, "#547a83"],
-    ]
-    contour_style = dict(
-        showlabels=True,
-        coloring="heatmap",
-        labelfont=dict(
-            family="Bahnschrift, Yu Gothic UI, sans-serif",
-            size=12,
-            color="#21343a",
-        ),
-    )
-    fig = make_subplots(
-        rows=1,
-        cols=2,
-        shared_yaxes=True,
-        horizontal_spacing=0.08,
-        subplot_titles=("変更前", "変更後"),
-    )
+    contour_step = nice_contour_step((z_max - z_min) / 8.0)
+    contour_start = np.floor(z_min / contour_step) * contour_step
+    contour_end = np.ceil(z_max / contour_step) * contour_step
+    fig = go.Figure()
     fig.add_trace(
         go.Contour(
             x=current_map.x_axis,
@@ -721,14 +734,18 @@ def cvt_map_comparison_figure(
             z=current_map.values,
             zmin=z_min,
             zmax=z_max,
-            colorscale=colorscale,
-            contours=contour_style,
-            line=dict(color="rgba(34, 51, 56, 0.58)", width=1.15),
+            contours=dict(
+                start=contour_start,
+                end=contour_end,
+                size=contour_step,
+                coloring="none",
+                showlabels=False,
+            ),
+            line=dict(color="#c2603f", width=1.8, dash="dash"),
             showscale=False,
+            showlegend=False,
             hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} rpm<extra>変更前</extra>",
-        ),
-        row=1,
-        col=1,
+        )
     )
     fig.add_trace(
         go.Contour(
@@ -737,24 +754,47 @@ def cvt_map_comparison_figure(
             z=optimized_values,
             zmin=z_min,
             zmax=z_max,
-            colorscale=colorscale,
-            contours=contour_style,
-            line=dict(color="rgba(34, 51, 56, 0.58)", width=1.15),
-            colorbar=dict(
-                title=dict(text="rpm", side="top"),
-                thickness=18,
-                tickfont=dict(size=12, color="#34484f"),
-                outlinecolor="#9aabad",
-                outlinewidth=1,
+            contours=dict(
+                start=contour_start,
+                end=contour_end,
+                size=contour_step,
+                coloring="none",
+                showlabels=True,
+                labelfont=dict(
+                    family="Bahnschrift, Yu Gothic UI, sans-serif",
+                    size=12,
+                    color="#075f5c",
+                ),
             ),
+            line=dict(color="#087b76", width=2.4),
+            showscale=False,
+            showlegend=False,
             hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} rpm<extra>変更後</extra>",
-        ),
-        row=1,
-        col=2,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="lines",
+            line=dict(color="#c2603f", width=1.8, dash="dash"),
+            name="変更前",
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[None],
+            y=[None],
+            mode="lines",
+            line=dict(color="#087b76", width=2.4),
+            name="変更後",
+            hoverinfo="skip",
+        )
     )
     fig.update_layout(
-        title="CVT変速線図マップ比較",
-        height=570,
+        title="CVT変速線図マップ比較（重ね表示）",
+        height=620,
         plot_bgcolor="#f9fbfb",
         paper_bgcolor="#ffffff",
         font=dict(
@@ -763,14 +803,34 @@ def cvt_map_comparison_figure(
             color="#27383e",
         ),
         title_font=dict(size=19, color="#17282e"),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(255,255,255,0.92)",
+            bordercolor="#a9b7ba",
+            borderwidth=1,
+        ),
         margin=dict(l=72, r=42, t=92, b=70),
     )
-    fig.update_annotations(font=dict(size=16, color="#203238"))
     apply_chart_axes(fig)
-    add_map_gridlines(fig, current_map.x_axis, current_map.y_axis, columns=2)
     fig.update_xaxes(title_text="車速 km/h")
-    fig.update_yaxes(title_text="アクセル開度 %", row=1, col=1)
+    fig.update_yaxes(title_text="アクセル開度 %")
+    add_map_gridlines(fig, current_map.x_axis, current_map.y_axis)
     return fig
+
+
+def nice_contour_step(raw_step: float) -> float:
+    if not np.isfinite(raw_step) or raw_step <= 0:
+        return 100.0
+    magnitude = 10 ** np.floor(np.log10(raw_step))
+    normalized = raw_step / magnitude
+    for candidate in (1.0, 2.0, 2.5, 5.0, 10.0):
+        if normalized <= candidate:
+            return candidate * magnitude
+    return 10.0 * magnitude
 
 
 def map_heatmap_figure(
