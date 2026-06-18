@@ -79,6 +79,8 @@ http://localhost:8501
 
 アプリでは、現在のCVT変速線図と燃費率マップをExcelからそのまま貼り付けできます。走行データはCSVまたは`.trn`をアップロードします。
 
+デモデータは `demo_data/` にあります。アプリでは `demo_drive.csv` をアップロードし、`current_cvt_map_for_paste.tsv` と `bsfc_map_for_paste.tsv` を開いて全体をコピーし、それぞれの貼り付け欄に入れてください。
+
 サンプル`.trn`の列確認:
 
 ```powershell
