@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from cvt_optimizer.io import read_drive_table
 from cvt_optimizer.maps import BilinearMap
@@ -105,6 +106,11 @@ def main() -> None:
 
     st.plotly_chart(
         bsfc_contour_figure(bsfc_map, result.drive_evaluation, columns),
+        use_container_width=True,
+    )
+
+    st.plotly_chart(
+        cvt_map_comparison_figure(cvt_map, result.optimized_map),
         use_container_width=True,
     )
 
@@ -248,32 +254,25 @@ def bsfc_contour_figure(
             x=bsfc_map.x_axis,
             y=bsfc_map.y_axis,
             z=bsfc_map.values,
-            contours=dict(showlabels=True),
-            colorscale="Viridis",
-            colorbar=dict(title="g/kWh"),
+            contours=dict(
+                showlabels=True,
+                coloring="heatmap",
+                labelfont=dict(size=15, color="#25332f"),
+            ),
+            colorscale=[
+                [0.0, "#f4f6f5"],
+                [0.25, "#dce4e1"],
+                [0.5, "#b7c9c3"],
+                [0.75, "#789c91"],
+                [1.0, "#3f665d"],
+            ],
+            line=dict(color="rgba(38, 54, 49, 0.42)", width=1),
+            colorbar=dict(title="g/kWh", thickness=16),
+            hovertemplate="%{x:.0f} rpm<br>%{y:.1f} Nm<br>%{z:.1f} g/kWh<extra></extra>",
             name="BSFC",
         )
     )
 
-    sampled = downsample(evaluation, 5000)
-    fig.add_trace(
-        go.Scattergl(
-            x=sampled[columns.rpm],
-            y=sampled[columns.torque],
-            mode="markers",
-            marker=dict(size=5, color="#e45756", opacity=0.52),
-            name="変更前",
-        )
-    )
-    fig.add_trace(
-        go.Scattergl(
-            x=sampled["Optimized_Map_RPM"],
-            y=sampled["Optimized_Map_Torque_Nm"],
-            mode="markers",
-            marker=dict(size=5, color="#2f80ed", opacity=0.52),
-            name="変更後",
-        )
-    )
     for power_kw in choose_power_lines(evaluation):
         rpm = np.linspace(bsfc_map.x_min, bsfc_map.x_max, 180)
         torque = power_kw * 9549.29658551372 / rpm
@@ -285,20 +284,125 @@ def bsfc_contour_figure(
                 x=rpm[mask],
                 y=torque[mask],
                 mode="lines",
-                line=dict(width=1, color="rgba(40,40,40,0.28)", dash="dot"),
+                line=dict(width=1, color="rgba(35, 43, 41, 0.22)", dash="dot"),
                 name=f"{power_kw:.0f} kW",
                 hoverinfo="skip",
                 showlegend=False,
             )
         )
+
+    sampled = downsample(evaluation, 5000)
+    fig.add_trace(
+        go.Scattergl(
+            x=sampled[columns.rpm],
+            y=sampled[columns.torque],
+            mode="markers",
+            marker=dict(
+                size=7,
+                color="#b73d52",
+                opacity=0.78,
+                line=dict(color="rgba(255,255,255,0.9)", width=0.7),
+            ),
+            name="変更前",
+        )
+    )
+    fig.add_trace(
+        go.Scattergl(
+            x=sampled["Optimized_Map_RPM"],
+            y=sampled["Optimized_Map_Torque_Nm"],
+            mode="markers",
+            marker=dict(
+                size=7,
+                color="#176b93",
+                opacity=0.78,
+                line=dict(color="rgba(255,255,255,0.9)", width=0.7),
+            ),
+            name="変更後",
+        )
+    )
     fig.update_layout(
         title="燃費率マップ上の走行点",
         xaxis_title="エンジン回転数 rpm",
         yaxis_title="エンジントルク Nm",
         height=680,
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font=dict(size=13, color="#27322f"),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         margin=dict(l=50, r=30, t=80, b=50),
     )
+    fig.update_xaxes(showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)")
+    fig.update_yaxes(showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)")
+    return fig
+
+
+def cvt_map_comparison_figure(
+    current_map: BilinearMap,
+    optimized_values: np.ndarray,
+) -> go.Figure:
+    z_min = float(np.nanmin([np.nanmin(current_map.values), np.nanmin(optimized_values)]))
+    z_max = float(np.nanmax([np.nanmax(current_map.values), np.nanmax(optimized_values)]))
+    colorscale = [
+        [0.0, "#f3f5f4"],
+        [0.25, "#d6dfdc"],
+        [0.5, "#a8bdb7"],
+        [0.75, "#6f948c"],
+        [1.0, "#315f58"],
+    ]
+    contour_style = dict(
+        showlabels=True,
+        coloring="heatmap",
+        labelfont=dict(size=12, color="#26332f"),
+    )
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        shared_yaxes=True,
+        horizontal_spacing=0.08,
+        subplot_titles=("変更前", "変更後"),
+    )
+    fig.add_trace(
+        go.Contour(
+            x=current_map.x_axis,
+            y=current_map.y_axis,
+            z=current_map.values,
+            zmin=z_min,
+            zmax=z_max,
+            colorscale=colorscale,
+            contours=contour_style,
+            line=dict(color="rgba(40, 55, 51, 0.38)", width=0.9),
+            showscale=False,
+            hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} rpm<extra>変更前</extra>",
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Contour(
+            x=current_map.x_axis,
+            y=current_map.y_axis,
+            z=optimized_values,
+            zmin=z_min,
+            zmax=z_max,
+            colorscale=colorscale,
+            contours=contour_style,
+            line=dict(color="rgba(40, 55, 51, 0.38)", width=0.9),
+            colorbar=dict(title="rpm", thickness=16),
+            hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} rpm<extra>変更後</extra>",
+        ),
+        row=1,
+        col=2,
+    )
+    fig.update_layout(
+        title="CVT変速線図マップ比較",
+        height=520,
+        plot_bgcolor="#ffffff",
+        paper_bgcolor="#ffffff",
+        font=dict(size=13, color="#27322f"),
+        margin=dict(l=55, r=35, t=85, b=55),
+    )
+    fig.update_xaxes(title_text="車速 km/h", showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)")
+    fig.update_yaxes(title_text="アクセル開度 %", showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)", row=1, col=1)
     return fig
 
 
