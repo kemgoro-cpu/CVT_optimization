@@ -21,43 +21,58 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    st.title("CVT変速線図最適化")
+    apply_app_theme()
 
     with st.sidebar:
+        st.markdown(
+            '<div class="sidebar-brand"><span>CVT CALIBRATION</span>'
+            '<strong>Optimization Setup</strong></div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown('<div class="sidebar-label">走行データ</div>', unsafe_allow_html=True)
         uploaded_drive = st.file_uploader(
             "走行データ CSV / TRN",
             type=["csv", "trn", "txt"],
         )
-        st.divider()
-        time_col = st.text_input("時間列", "Time")
-        speed_col = st.text_input("車速列", "Actual_Speed")
-        throttle_col = st.text_input("アクセル開度列", "Throttle")
-        rpm_col = st.text_input("エンジン回転数列", "Engine_RPM")
-        torque_col = st.text_input("エンジントルク列", "Engine_Torque")
-        mode_col = st.text_input("モード列", "")
-        mode_value = st.text_input("燃費モード値", "")
-        st.divider()
-        min_rpm = optional_number("最小RPM", "")
-        max_rpm = optional_number("最大RPM", "")
-        rpm_step = st.number_input("RPM刻み", min_value=1.0, value=50.0, step=10.0)
-        min_speed = st.number_input("最小車速 km/h", min_value=0.0, value=1.0, step=1.0)
-        min_power = st.number_input("最小出力 kW", min_value=0.0, value=0.5, step=0.5)
-        update_gain = st.slider("更新ゲイン", 0.0, 1.0, 1.0, 0.05)
-        max_delta = optional_number("最大変更RPM", "")
-        smooth_passes = st.number_input("平滑化回数", min_value=0, value=0, step=1)
-        smooth_weight = st.slider("平滑化強さ", 0.0, 1.0, 0.15, 0.05)
+
+        with st.expander("列マッピング", expanded=False):
+            time_col = st.text_input("時間列", "Time")
+            speed_col = st.text_input("車速列", "Actual_Speed")
+            throttle_col = st.text_input("アクセル開度列", "Throttle")
+            rpm_col = st.text_input("エンジン回転数列", "Engine_RPM")
+            torque_col = st.text_input("エンジントルク列", "Engine_Torque")
+            mode_col = st.text_input("モード列", "")
+            mode_value = st.text_input("燃費モード値", "")
+
+        with st.expander("最適化条件", expanded=False):
+            min_rpm = optional_number("最小RPM", "")
+            max_rpm = optional_number("最大RPM", "")
+            rpm_step = st.number_input("RPM刻み", min_value=1.0, value=50.0, step=10.0)
+            min_speed = st.number_input(
+                "最小車速 km/h", min_value=0.0, value=1.0, step=1.0
+            )
+            min_power = st.number_input(
+                "最小出力 kW", min_value=0.0, value=0.5, step=0.5
+            )
+            update_gain = st.slider("更新ゲイン", 0.0, 1.0, 1.0, 0.05)
+            max_delta = optional_number("最大変更RPM", "")
+            smooth_passes = st.number_input("平滑化回数", min_value=0, value=0, step=1)
+            smooth_weight = st.slider("平滑化強さ", 0.0, 1.0, 0.15, 0.05)
+
+    render_page_header()
+    render_section_header("INPUT MAPS", "マップ入力")
 
     left, right = st.columns(2)
     with left:
         cvt_text = st.text_area(
             "現在のCVT変速線図",
-            height=260,
+            height=290,
             placeholder="Throttle\t0\t20\t40\t60\n0\t800\t900\t1000\t1100\n20\t1200\t1500\t1800\t2100",
         )
     with right:
         bsfc_text = st.text_area(
             "燃費率マップ",
-            height=260,
+            height=290,
             placeholder="Torque\t1000\t1500\t2000\t2500\n20\t360\t330\t310\t320\n40\t310\t270\t245\t250",
         )
 
@@ -74,71 +89,77 @@ def main() -> None:
         return
 
     try:
-        drive = read_uploaded_drive(uploaded_drive)
-        cvt_map = parse_pasted_map(cvt_text, "CVT変速線図")
-        bsfc_map = parse_pasted_map(bsfc_text, "燃費率マップ")
-        columns = ColumnConfig(
-            time=time_col,
-            speed=speed_col,
-            throttle=throttle_col,
-            rpm=rpm_col,
-            torque=torque_col,
-            mode=mode_col.strip() or None,
-            mode_value=mode_value.strip() or None,
-        )
-        options = OptimizationOptions(
-            min_rpm=min_rpm,
-            max_rpm=max_rpm,
-            rpm_step=float(rpm_step),
-            min_speed_kmh=float(min_speed),
-            min_power_kw=float(min_power),
-            map_update_gain=float(update_gain),
-            max_delta_rpm=max_delta,
-            smooth_passes=int(smooth_passes),
-            smooth_weight=float(smooth_weight),
-        )
-        result = optimize_cvt_map(drive, cvt_map, bsfc_map, columns, options)
+        with st.spinner("最適化を実行中"):
+            drive = read_uploaded_drive(uploaded_drive)
+            cvt_map = parse_pasted_map(cvt_text, "CVT変速線図")
+            bsfc_map = parse_pasted_map(bsfc_text, "燃費率マップ")
+            columns = ColumnConfig(
+                time=time_col,
+                speed=speed_col,
+                throttle=throttle_col,
+                rpm=rpm_col,
+                torque=torque_col,
+                mode=mode_col.strip() or None,
+                mode_value=mode_value.strip() or None,
+            )
+            options = OptimizationOptions(
+                min_rpm=min_rpm,
+                max_rpm=max_rpm,
+                rpm_step=float(rpm_step),
+                min_speed_kmh=float(min_speed),
+                min_power_kw=float(min_power),
+                map_update_gain=float(update_gain),
+                max_delta_rpm=max_delta,
+                smooth_passes=int(smooth_passes),
+                smooth_weight=float(smooth_weight),
+            )
+            result = optimize_cvt_map(drive, cvt_map, bsfc_map, columns, options)
     except Exception as exc:  # noqa: BLE001 - Streamlit should surface data issues.
         st.error(str(exc))
         return
 
+    render_section_header("RESULTS", "最適化結果")
     show_summary(result.summary)
 
-    st.plotly_chart(
-        bsfc_contour_figure(bsfc_map, result.drive_evaluation, columns),
-        use_container_width=True,
+    operating_tab, cvt_tab, diagnostics_tab = st.tabs(
+        ["燃費率と走行点", "CVT線図比較", "変更量とカバレッジ"]
     )
-
-    st.plotly_chart(
-        cvt_map_comparison_figure(cvt_map, result.optimized_map),
-        use_container_width=True,
-    )
-
-    c1, c2 = st.columns(2)
-    with c1:
+    with operating_tab:
         st.plotly_chart(
-            map_heatmap_figure(
-                cvt_map.x_axis,
-                cvt_map.y_axis,
-                result.optimized_map - cvt_map.values,
-                "CVT変更量",
-                "rpm",
-            ),
+            bsfc_contour_figure(bsfc_map, result.drive_evaluation, columns),
             use_container_width=True,
         )
-    with c2:
+    with cvt_tab:
         st.plotly_chart(
-            map_heatmap_figure(
-                cvt_map.x_axis,
-                cvt_map.y_axis,
-                result.coverage_count,
-                "走行点カバレッジ",
-                "points",
-            ),
+            cvt_map_comparison_figure(cvt_map, result.optimized_map),
             use_container_width=True,
         )
+    with diagnostics_tab:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(
+                map_heatmap_figure(
+                    cvt_map.x_axis,
+                    cvt_map.y_axis,
+                    result.optimized_map - cvt_map.values,
+                    "CVT変更量",
+                    "rpm",
+                ),
+                use_container_width=True,
+            )
+        with c2:
+            st.plotly_chart(
+                map_heatmap_figure(
+                    cvt_map.x_axis,
+                    cvt_map.y_axis,
+                    result.coverage_count,
+                    "走行点カバレッジ",
+                    "points",
+                ),
+                use_container_width=True,
+            )
 
-    st.subheader("出力")
+    render_section_header("EXPORT", "出力")
     d1, d2, d3 = st.columns(3)
     with d1:
         st.download_button(
@@ -169,6 +190,289 @@ def main() -> None:
             "text/csv",
             use_container_width=True,
         )
+
+
+def apply_app_theme() -> None:
+    st.markdown(
+        """
+        <style>
+        :root {
+            --canvas: #f2f5f5;
+            --surface: #ffffff;
+            --surface-2: #e8eeee;
+            --ink: #172328;
+            --muted: #607076;
+            --line: #cbd5d8;
+            --accent: #0b7a75;
+            --accent-hover: #08645f;
+            --sidebar: #1a2529;
+            --sidebar-2: #223136;
+        }
+
+        html, body, [class*="css"] {
+            font-family: "Bahnschrift", "Yu Gothic UI", sans-serif;
+            letter-spacing: 0;
+        }
+
+        [data-testid="stAppViewContainer"] {
+            background: var(--canvas);
+            color: var(--ink);
+        }
+
+        [data-testid="stMain"],
+        [data-testid="stMain"] p,
+        [data-testid="stMain"] label,
+        [data-testid="stMain"] span {
+            color: var(--ink);
+        }
+
+        [data-testid="stHeader"] {
+            background: rgba(242, 245, 245, 0.94);
+            border-bottom: 1px solid var(--line);
+        }
+
+        [data-testid="stMainBlockContainer"] {
+            max-width: 1500px;
+            padding: 1.4rem 2.5rem 4rem;
+        }
+
+        [data-testid="stSidebar"] {
+            background: var(--sidebar);
+            border-right: 1px solid #33454b;
+        }
+
+        [data-testid="stSidebar"] > div:first-child {
+            padding-top: 1.2rem;
+        }
+
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] p,
+        [data-testid="stSidebar"] summary,
+        [data-testid="stSidebar"] span {
+            color: #e8efef;
+        }
+
+        [data-testid="stSidebar"] input {
+            color: var(--ink) !important;
+            background: #f8fafa !important;
+        }
+
+        [data-testid="stSidebar"] [data-baseweb="input"] {
+            background: #f8fafa;
+            border-color: #53666c;
+            border-radius: 4px;
+        }
+
+        [data-testid="stSidebar"] details {
+            background: var(--sidebar-2);
+            border: 1px solid #3a4c52;
+            border-radius: 4px;
+            margin-top: 0.7rem;
+        }
+
+        [data-testid="stFileUploaderDropzone"] {
+            background: var(--sidebar-2);
+            border: 1px dashed #71858b;
+            border-radius: 4px;
+        }
+
+        .sidebar-brand {
+            border-bottom: 1px solid #3a4a4f;
+            margin-bottom: 1.25rem;
+            padding-bottom: 1rem;
+        }
+
+        .sidebar-brand > span,
+        .page-title > div > span,
+        .section-heading > span,
+        .sidebar-label {
+            color: #5aaea8 !important;
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .sidebar-brand strong {
+            color: #ffffff;
+            display: block;
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-top: 0.28rem;
+        }
+
+        .sidebar-label {
+            margin-bottom: 0.35rem;
+        }
+
+        .page-title {
+            align-items: end;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1.4rem;
+            padding: 0.45rem 0 1.15rem;
+        }
+
+        .page-title h1 {
+            color: var(--ink) !important;
+            font-size: 2.2rem;
+            font-weight: 650;
+            letter-spacing: 0;
+            line-height: 1.08;
+            margin: 0.3rem 0 0;
+            white-space: nowrap;
+        }
+
+        .page-title code {
+            background: var(--surface-2);
+            border: 1px solid var(--line);
+            border-radius: 3px;
+            color: #3f5157;
+            font-family: "Cascadia Mono", monospace;
+            font-size: 0.72rem;
+            padding: 0.32rem 0.48rem;
+        }
+
+        .section-heading {
+            margin: 1.35rem 0 0.65rem;
+        }
+
+        .section-heading h2 {
+            color: var(--ink) !important;
+            font-size: 1.35rem;
+            font-weight: 650;
+            letter-spacing: 0;
+            line-height: 1.2;
+            margin: 0.2rem 0 0;
+        }
+
+        [data-testid="stTextArea"] textarea {
+            background: var(--surface);
+            border: 1px solid #b8c5c8;
+            border-radius: 4px;
+            color: #243238 !important;
+            font-family: "Cascadia Mono", "Consolas", monospace;
+            font-size: 0.84rem;
+            line-height: 1.55;
+            -webkit-text-fill-color: #243238;
+        }
+
+        [data-testid="stTextArea"] label p {
+            color: #34464d !important;
+            font-size: 0.86rem;
+            font-weight: 650;
+        }
+
+        [data-testid="stTextArea"] textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px rgba(11, 122, 117, 0.14);
+        }
+
+        button[kind="primary"], [data-testid="stBaseButton-primary"] {
+            background: var(--accent) !important;
+            border: 1px solid var(--accent) !important;
+            border-radius: 4px !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            min-height: 46px;
+        }
+
+        button[kind="primary"] p,
+        [data-testid="stBaseButton-primary"] p {
+            color: #ffffff !important;
+        }
+
+        button[kind="primary"]:hover, [data-testid="stBaseButton-primary"]:hover {
+            background: var(--accent-hover) !important;
+            border-color: var(--accent-hover) !important;
+        }
+
+        [data-testid="stMetric"] {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 4px;
+            min-height: 105px;
+            padding: 0.9rem 1rem;
+        }
+
+        [data-testid="stMetricLabel"] {
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        [data-testid="stMetricValue"] {
+            color: var(--ink);
+            font-family: "Bahnschrift", sans-serif;
+            font-size: 1.75rem;
+        }
+
+        [data-baseweb="tab-list"] {
+            border-bottom: 1px solid var(--line);
+            gap: 1.5rem;
+        }
+
+        [data-baseweb="tab"] {
+            color: var(--muted);
+            font-weight: 600;
+            padding-left: 0;
+            padding-right: 0;
+        }
+
+        [aria-selected="true"][data-baseweb="tab"] {
+            color: var(--accent);
+        }
+
+        [data-testid="stDownloadButton"] button {
+            background: var(--surface);
+            border: 1px solid #aebdc1;
+            border-radius: 4px;
+            color: var(--ink);
+            min-height: 44px;
+        }
+
+        [data-testid="stDownloadButton"] button:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        @media (max-width: 800px) {
+            [data-testid="stMainBlockContainer"] {
+                padding: 1rem 1rem 3rem;
+            }
+            .page-title {
+                align-items: flex-start;
+                flex-direction: column;
+                gap: 0.8rem;
+            }
+            .page-title h1 {
+                font-size: 1.75rem;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_page_header() -> None:
+    st.markdown(
+        """
+        <div class="page-title">
+            <div><span>CVT CALIBRATION</span><h1>変速線図最適化</h1></div>
+            <code>DRIVE-CYCLE / BSFC</code>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_section_header(kicker: str, title: str) -> None:
+    st.markdown(
+        f'<div class="section-heading"><span>{kicker}</span><h2>{title}</h2></div>',
+        unsafe_allow_html=True,
+    )
 
 
 def optional_number(label: str, default: str) -> float | None:
