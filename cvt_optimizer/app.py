@@ -561,23 +561,33 @@ def bsfc_contour_figure(
             contours=dict(
                 showlabels=True,
                 coloring="heatmap",
-                labelfont=dict(size=15, color="#25332f"),
+                labelfont=dict(
+                    family="Bahnschrift, Yu Gothic UI, sans-serif",
+                    size=14,
+                    color="#1d3035",
+                ),
             ),
             colorscale=[
-                [0.0, "#f4f6f5"],
-                [0.25, "#dce4e1"],
-                [0.5, "#b7c9c3"],
-                [0.75, "#789c91"],
-                [1.0, "#3f665d"],
+                [0.0, "#7ca8a1"],
+                [0.25, "#abc4bd"],
+                [0.5, "#d9ddd4"],
+                [0.75, "#ddbea0"],
+                [1.0, "#bd826d"],
             ],
-            line=dict(color="rgba(38, 54, 49, 0.42)", width=1),
-            colorbar=dict(title="g/kWh", thickness=16),
+            line=dict(color="rgba(32, 48, 53, 0.62)", width=1.25),
+            colorbar=dict(
+                title=dict(text="g/kWh", side="top"),
+                thickness=18,
+                tickfont=dict(size=12, color="#34484f"),
+                outlinecolor="#9aabad",
+                outlinewidth=1,
+            ),
             hovertemplate="%{x:.0f} rpm<br>%{y:.1f} Nm<br>%{z:.1f} g/kWh<extra></extra>",
             name="BSFC",
         )
     )
 
-    for power_kw in choose_power_lines(evaluation):
+    for line_index, power_kw in enumerate(choose_power_lines(evaluation)):
         rpm = np.linspace(bsfc_map.x_min, bsfc_map.x_max, 180)
         torque = power_kw * 9549.29658551372 / rpm
         mask = (torque >= bsfc_map.y_min) & (torque <= bsfc_map.y_max)
@@ -588,11 +598,30 @@ def bsfc_contour_figure(
                 x=rpm[mask],
                 y=torque[mask],
                 mode="lines",
-                line=dict(width=1, color="rgba(35, 43, 41, 0.22)", dash="dot"),
+                line=dict(width=1.8, color="rgba(36, 47, 51, 0.66)", dash="dash"),
                 name=f"{power_kw:.0f} kW",
                 hoverinfo="skip",
                 showlegend=False,
             )
+        )
+        line_rpm = rpm[mask]
+        line_torque = torque[mask]
+        label_fraction = 0.58 + 0.08 * (line_index % 3)
+        label_index = min(int(len(line_rpm) * label_fraction), len(line_rpm) - 1)
+        fig.add_annotation(
+            x=float(line_rpm[label_index]),
+            y=float(line_torque[label_index]),
+            text=f"{power_kw:.0f} kW",
+            showarrow=False,
+            bgcolor="rgba(255, 255, 255, 0.88)",
+            bordercolor="rgba(73, 87, 92, 0.48)",
+            borderwidth=1,
+            borderpad=2,
+            font=dict(
+                family="Bahnschrift, Yu Gothic UI, sans-serif",
+                size=11,
+                color="#27383e",
+            ),
         )
 
     sampled = downsample(evaluation, 5000)
@@ -602,10 +631,11 @@ def bsfc_contour_figure(
             y=sampled[columns.torque],
             mode="markers",
             marker=dict(
-                size=7,
-                color="#b73d52",
-                opacity=0.78,
-                line=dict(color="rgba(255,255,255,0.9)", width=0.7),
+                size=9,
+                symbol="x",
+                color="#c3432e",
+                opacity=0.9,
+                line=dict(color="#ffffff", width=1.2),
             ),
             name="変更前",
         )
@@ -616,10 +646,11 @@ def bsfc_contour_figure(
             y=sampled["Optimized_Map_Torque_Nm"],
             mode="markers",
             marker=dict(
-                size=7,
-                color="#176b93",
-                opacity=0.78,
-                line=dict(color="rgba(255,255,255,0.9)", width=0.7),
+                size=8,
+                symbol="circle",
+                color="#006d8d",
+                opacity=0.88,
+                line=dict(color="#ffffff", width=1.1),
             ),
             name="変更後",
         )
@@ -628,15 +659,29 @@ def bsfc_contour_figure(
         title="燃費率マップ上の走行点",
         xaxis_title="エンジン回転数 rpm",
         yaxis_title="エンジントルク Nm",
-        height=680,
-        plot_bgcolor="#ffffff",
+        height=700,
+        plot_bgcolor="#f9fbfb",
         paper_bgcolor="#ffffff",
-        font=dict(size=13, color="#27322f"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=50, r=30, t=80, b=50),
+        font=dict(
+            family="Bahnschrift, Yu Gothic UI, sans-serif",
+            size=13,
+            color="#27383e",
+        ),
+        title_font=dict(size=19, color="#17282e"),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1,
+            bgcolor="rgba(255,255,255,0.92)",
+            bordercolor="#a9b7ba",
+            borderwidth=1,
+            font=dict(size=13, color="#27383e"),
+        ),
+        margin=dict(l=72, r=42, t=92, b=70),
     )
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)")
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)")
+    apply_chart_axes(fig)
     return fig
 
 
@@ -648,15 +693,19 @@ def cvt_map_comparison_figure(
     z_max = float(np.nanmax([np.nanmax(current_map.values), np.nanmax(optimized_values)]))
     colorscale = [
         [0.0, "#f3f5f4"],
-        [0.25, "#d6dfdc"],
-        [0.5, "#a8bdb7"],
-        [0.75, "#6f948c"],
-        [1.0, "#315f58"],
+        [0.25, "#dbe5e2"],
+        [0.5, "#b5cdca"],
+        [0.75, "#86a9aa"],
+        [1.0, "#547a83"],
     ]
     contour_style = dict(
         showlabels=True,
         coloring="heatmap",
-        labelfont=dict(size=12, color="#26332f"),
+        labelfont=dict(
+            family="Bahnschrift, Yu Gothic UI, sans-serif",
+            size=12,
+            color="#21343a",
+        ),
     )
     fig = make_subplots(
         rows=1,
@@ -674,7 +723,7 @@ def cvt_map_comparison_figure(
             zmax=z_max,
             colorscale=colorscale,
             contours=contour_style,
-            line=dict(color="rgba(40, 55, 51, 0.38)", width=0.9),
+            line=dict(color="rgba(34, 51, 56, 0.58)", width=1.15),
             showscale=False,
             hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} rpm<extra>変更前</extra>",
         ),
@@ -690,8 +739,14 @@ def cvt_map_comparison_figure(
             zmax=z_max,
             colorscale=colorscale,
             contours=contour_style,
-            line=dict(color="rgba(40, 55, 51, 0.38)", width=0.9),
-            colorbar=dict(title="rpm", thickness=16),
+            line=dict(color="rgba(34, 51, 56, 0.58)", width=1.15),
+            colorbar=dict(
+                title=dict(text="rpm", side="top"),
+                thickness=18,
+                tickfont=dict(size=12, color="#34484f"),
+                outlinecolor="#9aabad",
+                outlinewidth=1,
+            ),
             hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} rpm<extra>変更後</extra>",
         ),
         row=1,
@@ -699,14 +754,22 @@ def cvt_map_comparison_figure(
     )
     fig.update_layout(
         title="CVT変速線図マップ比較",
-        height=520,
-        plot_bgcolor="#ffffff",
+        height=570,
+        plot_bgcolor="#f9fbfb",
         paper_bgcolor="#ffffff",
-        font=dict(size=13, color="#27322f"),
-        margin=dict(l=55, r=35, t=85, b=55),
+        font=dict(
+            family="Bahnschrift, Yu Gothic UI, sans-serif",
+            size=13,
+            color="#27383e",
+        ),
+        title_font=dict(size=19, color="#17282e"),
+        margin=dict(l=72, r=42, t=92, b=70),
     )
-    fig.update_xaxes(title_text="車速 km/h", showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)")
-    fig.update_yaxes(title_text="アクセル開度 %", showgrid=True, gridcolor="rgba(55, 68, 64, 0.10)", row=1, col=1)
+    fig.update_annotations(font=dict(size=16, color="#203238"))
+    apply_chart_axes(fig)
+    add_map_gridlines(fig, current_map.x_axis, current_map.y_axis, columns=2)
+    fig.update_xaxes(title_text="車速 km/h")
+    fig.update_yaxes(title_text="アクセル開度 %", row=1, col=1)
     return fig
 
 
@@ -717,26 +780,98 @@ def map_heatmap_figure(
     title: str,
     unit: str,
 ) -> go.Figure:
+    diverging = [
+        [0.0, "#ad5948"],
+        [0.5, "#f1f3f1"],
+        [1.0, "#247584"],
+    ]
+    sequential = [
+        [0.0, "#f1f4f3"],
+        [0.35, "#c5d9d5"],
+        [0.7, "#7eaaa3"],
+        [1.0, "#346f69"],
+    ]
     heatmap_args = dict(
         x=x_axis,
         y=y_axis,
         z=values,
-        colorscale="RdBu",
-        colorbar=dict(title=unit),
+        colorscale=diverging if unit == "rpm" else sequential,
+        colorbar=dict(
+            title=dict(text=unit, side="top"),
+            thickness=16,
+            outlinecolor="#9aabad",
+            outlinewidth=1,
+        ),
+        hovertemplate="%{x:.1f} km/h<br>%{y:.1f} %<br>%{z:.0f} "
+        + unit
+        + "<extra></extra>",
     )
     if np.nanmin(values) < 0 < np.nanmax(values):
         heatmap_args["zmid"] = 0
-    fig = go.Figure(
-        data=go.Heatmap(**heatmap_args)
-    )
+    fig = go.Figure(data=go.Heatmap(**heatmap_args))
     fig.update_layout(
         title=title,
         xaxis_title="車速 km/h",
         yaxis_title="アクセル開度 %",
-        height=420,
-        margin=dict(l=50, r=30, t=60, b=50),
+        height=460,
+        plot_bgcolor="#f9fbfb",
+        paper_bgcolor="#ffffff",
+        font=dict(
+            family="Bahnschrift, Yu Gothic UI, sans-serif",
+            size=12,
+            color="#27383e",
+        ),
+        title_font=dict(size=17, color="#17282e"),
+        margin=dict(l=65, r=35, t=75, b=65),
     )
+    apply_chart_axes(fig)
+    add_map_gridlines(fig, x_axis, y_axis)
     return fig
+
+
+def apply_chart_axes(fig: go.Figure) -> None:
+    axis_style = dict(
+        showgrid=True,
+        gridcolor="#ccd6d9",
+        gridwidth=1.15,
+        showline=True,
+        linecolor="#607279",
+        linewidth=1.4,
+        mirror=True,
+        ticks="outside",
+        tickcolor="#607279",
+        ticklen=6,
+        tickwidth=1.2,
+        tickfont=dict(size=12, color="#34484f"),
+        title_font=dict(size=15, color="#1f3339"),
+        zeroline=False,
+    )
+    fig.update_xaxes(**axis_style)
+    fig.update_yaxes(**axis_style)
+
+
+def add_map_gridlines(
+    fig: go.Figure,
+    x_axis: np.ndarray,
+    y_axis: np.ndarray,
+    *,
+    columns: int = 1,
+) -> None:
+    x_grid = sample_grid_axis(x_axis)
+    y_grid = sample_grid_axis(y_axis)
+    line = dict(color="rgba(63, 79, 85, 0.23)", width=0.8)
+    for column in range(1, columns + 1):
+        for x_value in x_grid:
+            fig.add_vline(x=float(x_value), line=line, layer="above", row=1, col=column)
+        for y_value in y_grid:
+            fig.add_hline(y=float(y_value), line=line, layer="above", row=1, col=column)
+
+
+def sample_grid_axis(axis: np.ndarray, max_lines: int = 16) -> np.ndarray:
+    if len(axis) <= max_lines:
+        return axis
+    indices = np.linspace(0, len(axis) - 1, max_lines).round().astype(int)
+    return axis[np.unique(indices)]
 
 
 def choose_power_lines(evaluation: pd.DataFrame) -> list[float]:
