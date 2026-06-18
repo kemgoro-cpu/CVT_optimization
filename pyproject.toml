@@ -1,0 +1,19 @@
+[project]
+name = "cvt-optimizer"
+version = "0.1.0"
+description = "Optimize CVT speed-throttle RPM maps from driving logs and BSFC maps."
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "plotly",
+    "streamlit",
+]
+
+[project.scripts]
+cvt-optimize = "cvt_optimizer.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
