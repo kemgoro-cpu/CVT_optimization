@@ -60,6 +60,8 @@ def build_parser() -> argparse.ArgumentParser:
     optimize_parser.add_argument("--max-delta-rpm", type=float)
     optimize_parser.add_argument("--smooth-passes", type=int, default=0)
     optimize_parser.add_argument("--smooth-weight", type=float, default=0.15)
+    optimize_parser.add_argument("--monotonic-speed", action="store_true")
+    optimize_parser.add_argument("--monotonic-throttle", action="store_true")
     optimize_parser.add_argument("--no-plots", action="store_true")
     optimize_parser.set_defaults(command="optimize")
     return parser
@@ -106,6 +108,8 @@ def optimize(args: argparse.Namespace) -> int:
         max_delta_rpm=args.max_delta_rpm,
         smooth_passes=args.smooth_passes,
         smooth_weight=args.smooth_weight,
+        monotonic_speed=args.monotonic_speed,
+        monotonic_throttle=args.monotonic_throttle,
     )
     result = optimize_cvt_map(drive, cvt_map, bsfc_map, columns, options)
     write_outputs(args.output_dir, cvt_map, result)
@@ -124,4 +128,3 @@ def optimize(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

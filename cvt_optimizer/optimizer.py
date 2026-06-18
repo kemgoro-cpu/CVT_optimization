@@ -34,6 +34,8 @@ class OptimizationOptions:
     max_delta_rpm: float | None = None
     smooth_passes: int = 0
     smooth_weight: float = 0.15
+    monotonic_speed: bool = False
+    monotonic_throttle: bool = False
 
 
 @dataclass
@@ -289,6 +291,15 @@ def apply_map_update(
 
     if options.smooth_passes > 0 and options.smooth_weight > 0:
         updated = smooth_map(updated, options.smooth_passes, options.smooth_weight)
+    if options.monotonic_speed or options.monotonic_throttle:
+        updated = enforce_monotonic_map(
+            updated,
+            speed_direction=options.monotonic_speed,
+            throttle_direction=options.monotonic_throttle,
+        )
+        low = options.min_rpm if options.min_rpm is not None else -np.inf
+        high = options.max_rpm if options.max_rpm is not None else np.inf
+        updated = np.clip(updated, low, high)
     return updated
 
 
@@ -304,6 +315,59 @@ def smooth_map(values: np.ndarray, passes: int, weight: float) -> np.ndarray:
             + padded[2:, 1:-1]
         ) / 4.0
         result = result * (1.0 - weight) + neighbors * weight
+    return result
+
+
+def enforce_monotonic_map(
+    values: np.ndarray,
+    *,
+    speed_direction: bool,
+    throttle_direction: bool,
+    max_iterations: int = 20,
+) -> np.ndarray:
+    """Project a CVT map onto nondecreasing speed/throttle directions."""
+    result = np.asarray(values, dtype=float).copy()
+    for _ in range(max_iterations):
+        previous = result.copy()
+        if speed_direction:
+            for row in range(result.shape[0]):
+                result[row, :] = isotonic_increasing(result[row, :])
+        if throttle_direction:
+            for column in range(result.shape[1]):
+                result[:, column] = isotonic_increasing(result[:, column])
+        if np.allclose(result, previous, rtol=0.0, atol=1e-8, equal_nan=True):
+            break
+    return result
+
+
+def isotonic_increasing(values: np.ndarray) -> np.ndarray:
+    """Least-squares nondecreasing projection using the pool-adjacent-violators algorithm."""
+    result = np.asarray(values, dtype=float).copy()
+    finite = np.isfinite(result)
+    if not finite.any():
+        return result
+
+    starts = np.flatnonzero(finite & ~np.r_[False, finite[:-1]])
+    ends = np.flatnonzero(finite & ~np.r_[finite[1:], False]) + 1
+    for start, end in zip(starts, ends):
+        segment = result[start:end]
+        levels: list[float] = []
+        weights: list[int] = []
+        for value in segment:
+            levels.append(float(value))
+            weights.append(1)
+            while len(levels) >= 2 and levels[-2] > levels[-1]:
+                merged_weight = weights[-2] + weights[-1]
+                merged_level = (
+                    levels[-2] * weights[-2] + levels[-1] * weights[-1]
+                ) / merged_weight
+                levels[-2:] = [merged_level]
+                weights[-2:] = [merged_weight]
+
+        cursor = start
+        for level, weight in zip(levels, weights):
+            result[cursor : cursor + weight] = level
+            cursor += weight
     return result
 
 
@@ -343,4 +407,3 @@ def write_outputs(
         "Throttle",
     )
     result.drive_evaluation.to_csv(output / "drive_evaluation.csv", index=False)
-
