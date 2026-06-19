@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from cvt_optimizer.io import read_drive_table
-from cvt_optimizer.maps import BilinearMap
+from cvt_optimizer.maps import BilinearMap, LinearCurve
 from cvt_optimizer.optimizer import ColumnConfig, OptimizationOptions, optimize_cvt_map
 
 
@@ -83,6 +83,11 @@ def main() -> None:
             height=290,
             placeholder="Torque\t1000\t1500\t2000\t2500\n20\t360\t330\t310\t320\n40\t310\t270\t245\t250",
         )
+    max_torque_text = st.text_area(
+        "エンジン最大トルクカーブ",
+        height=175,
+        placeholder="Engine_RPM\tMax_Torque_Nm\n800\t80\n1500\t135\n2500\t175\n3500\t175\n4500\t140",
+    )
 
     run = st.button("最適化を実行", type="primary", use_container_width=True)
 
@@ -92,8 +97,11 @@ def main() -> None:
     if uploaded_drive is None:
         st.error("走行データを選択してください。")
         return
-    if not cvt_text.strip() or not bsfc_text.strip():
-        st.error("CVT変速線図と燃費率マップを貼り付けてください。")
+    if not cvt_text.strip() or not bsfc_text.strip() or not max_torque_text.strip():
+        st.error(
+            "CVT変速線図、燃費率マップ、エンジン最大トルクカーブを"
+            "貼り付けてください。"
+        )
         return
 
     try:
@@ -101,6 +109,10 @@ def main() -> None:
             drive = read_uploaded_drive(uploaded_drive)
             cvt_map = parse_pasted_map(cvt_text, "CVT変速線図")
             bsfc_map = parse_pasted_map(bsfc_text, "燃費率マップ")
+            max_torque_curve = parse_pasted_curve(
+                max_torque_text,
+                "エンジン最大トルクカーブ",
+            )
             columns = ColumnConfig(
                 time=time_col,
                 speed=speed_col,
@@ -123,12 +135,20 @@ def main() -> None:
                 monotonic_speed=monotonic_speed,
                 monotonic_throttle=monotonic_throttle,
             )
-            result = optimize_cvt_map(drive, cvt_map, bsfc_map, columns, options)
+            result = optimize_cvt_map(
+                drive,
+                cvt_map,
+                bsfc_map,
+                columns,
+                options,
+                max_torque_curve,
+            )
     except Exception as exc:  # noqa: BLE001 - Streamlit should surface data issues.
         st.error(str(exc))
         return
 
     render_section_header("RESULTS", "最適化結果")
+    show_torque_validation(result.summary)
     show_summary(result.summary)
 
     operating_tab, cvt_tab, diagnostics_tab = st.tabs(
@@ -136,7 +156,12 @@ def main() -> None:
     )
     with operating_tab:
         st.plotly_chart(
-            bsfc_contour_figure(bsfc_map, result.drive_evaluation, columns),
+            bsfc_contour_figure(
+                bsfc_map,
+                max_torque_curve,
+                result.drive_evaluation,
+                columns,
+            ),
             use_container_width=True,
         )
     with cvt_tab:
@@ -176,6 +201,7 @@ def main() -> None:
             )
 
     render_section_header("EXPORT", "出力")
+    map_export_enabled = bool(result.summary.get("fuel_result_valid", False))
     d1, d2, d3 = st.columns(3)
     with d1:
         st.download_button(
@@ -184,6 +210,7 @@ def main() -> None:
             "optimized_cvt_map.csv",
             "text/csv",
             use_container_width=True,
+            disabled=not map_export_enabled,
         )
     with d2:
         st.download_button(
@@ -197,6 +224,7 @@ def main() -> None:
             "delta_rpm_map.csv",
             "text/csv",
             use_container_width=True,
+            disabled=not map_export_enabled,
         )
     with d3:
         st.download_button(
@@ -537,6 +565,18 @@ def parse_pasted_map(text: str, name: str) -> BilinearMap:
     )
 
 
+def parse_pasted_curve(text: str, name: str) -> LinearCurve:
+    frame = parse_pasted_table(text)
+    if frame.shape[0] < 2 or frame.shape[1] < 2:
+        raise ValueError(f"{name}はRPMとトルクの2列、2点以上が必要です。")
+    x_axis = pd.to_numeric(frame.iloc[:, 0], errors="coerce").to_numpy(float)
+    values = pd.to_numeric(frame.iloc[:, 1], errors="coerce").to_numpy(float)
+    if np.isnan(x_axis).any() or np.isnan(values).any():
+        raise ValueError(f"{name}に空欄または数値ではない値があります。")
+    order = np.argsort(x_axis)
+    return LinearCurve(x_axis[order], values[order], name=name)
+
+
 def parse_pasted_table(text: str) -> pd.DataFrame:
     normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip("\n")
     delimiter = "\t" if "\t" in normalized.splitlines()[0] else ","
@@ -568,6 +608,27 @@ def show_summary(summary: dict) -> None:
     m4.metric("走行距離 km", format_metric(distance))
 
 
+def show_torque_validation(summary: dict) -> None:
+    current_invalid = int(summary.get("current_torque_infeasible_rows", 0))
+    optimized_invalid = int(summary.get("optimized_torque_infeasible_rows", 0))
+    target_unavailable = int(summary.get("target_unavailable_rows", 0))
+    if current_invalid:
+        st.error(
+            f"現在の走行点のうち {current_invalid} 点が最大トルクカーブを超えています。"
+            "トルクカーブまたは走行データの単位・列を確認してください。"
+        )
+    if optimized_invalid:
+        st.warning(
+            f"最適化後マップに最大トルク制約外の走行点が {optimized_invalid} 点あります。"
+            "燃費改善値は無効として表示しています。"
+        )
+    if target_unavailable:
+        st.warning(
+            f"BSFC範囲と最大トルク制約を同時に満たす候補がない走行点が "
+            f"{target_unavailable} 点あります。"
+        )
+
+
 def format_metric(value: object, suffix: str = "") -> str:
     try:
         number = float(value)
@@ -580,6 +641,7 @@ def format_metric(value: object, suffix: str = "") -> str:
 
 def bsfc_contour_figure(
     bsfc_map: BilinearMap,
+    max_torque_curve: LinearCurve,
     evaluation: pd.DataFrame,
     columns: ColumnConfig,
 ) -> go.Figure:
@@ -615,6 +677,41 @@ def bsfc_contour_figure(
             ),
             hovertemplate="%{x:.0f} rpm<br>%{y:.1f} Nm<br>%{z:.1f} g/kWh<extra></extra>",
             name="BSFC",
+        )
+    )
+
+    curve_min_rpm = max(bsfc_map.x_min, max_torque_curve.x_min)
+    curve_max_rpm = min(bsfc_map.x_max, max_torque_curve.x_max)
+    curve_rpm = np.linspace(curve_min_rpm, curve_max_rpm, 260)
+    curve_torque = max_torque_curve.interpolate(curve_rpm)
+    upper_torque = np.full_like(curve_torque, bsfc_map.y_max)
+    shaded_curve_torque = np.clip(curve_torque, bsfc_map.y_min, bsfc_map.y_max)
+    visible_curve_torque = np.where(
+        (curve_torque >= bsfc_map.y_min) & (curve_torque <= bsfc_map.y_max),
+        curve_torque,
+        np.nan,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=np.r_[curve_rpm, curve_rpm[::-1]],
+            y=np.r_[shaded_curve_torque, upper_torque[::-1]],
+            mode="lines",
+            line=dict(width=0),
+            fill="toself",
+            fillcolor="rgba(124, 73, 58, 0.12)",
+            name="最大トルク超過領域",
+            hoverinfo="skip",
+            showlegend=True,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=curve_rpm,
+            y=visible_curve_torque,
+            mode="lines",
+            line=dict(color="#733f32", width=2.6),
+            name="最大トルク",
+            hovertemplate="%{x:.0f} rpm<br>最大 %{y:.1f} Nm<extra></extra>",
         )
     )
 

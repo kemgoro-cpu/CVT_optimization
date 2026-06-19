@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .io import read_drive_table, read_wide_map
-from .maps import BilinearMap
+from .io import read_curve, read_drive_table, read_wide_map
+from .maps import BilinearMap, LinearCurve
 from .optimizer import (
     ColumnConfig,
     OptimizationOptions,
@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     optimize_parser.add_argument("--drive-data", required=True)
     optimize_parser.add_argument("--cvt-map", required=True)
     optimize_parser.add_argument("--bsfc-map", required=True)
+    optimize_parser.add_argument("--max-torque-curve", required=True)
     optimize_parser.add_argument("--output-dir", default="out")
     optimize_parser.add_argument("--time-col", default="Time")
     optimize_parser.add_argument("--speed-col", default="Actual_Speed")
@@ -86,8 +87,14 @@ def optimize(args: argparse.Namespace) -> int:
     drive = read_drive_table(args.drive_data)
     cvt_x, cvt_y, cvt_values = read_wide_map(args.cvt_map)
     bsfc_x, bsfc_y, bsfc_values = read_wide_map(args.bsfc_map)
+    torque_rpm, torque_values = read_curve(args.max_torque_curve)
     cvt_map = BilinearMap(cvt_x, cvt_y, cvt_values, name="CVT map")
     bsfc_map = BilinearMap(bsfc_x, bsfc_y, bsfc_values, name="BSFC map")
+    max_torque_curve = LinearCurve(
+        torque_rpm,
+        torque_values,
+        name="maximum torque curve",
+    )
 
     columns = ColumnConfig(
         time=args.time_col,
@@ -111,7 +118,14 @@ def optimize(args: argparse.Namespace) -> int:
         monotonic_speed=args.monotonic_speed,
         monotonic_throttle=args.monotonic_throttle,
     )
-    result = optimize_cvt_map(drive, cvt_map, bsfc_map, columns, options)
+    result = optimize_cvt_map(
+        drive,
+        cvt_map,
+        bsfc_map,
+        columns,
+        options,
+        max_torque_curve,
+    )
     write_outputs(args.output_dir, cvt_map, result)
     if not args.no_plots:
         plot_outputs(args.output_dir, cvt_map, result)

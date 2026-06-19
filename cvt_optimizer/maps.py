@@ -6,6 +6,48 @@ import numpy as np
 
 
 @dataclass(frozen=True)
+class LinearCurve:
+    x_axis: np.ndarray
+    values: np.ndarray
+    name: str = "curve"
+
+    def __post_init__(self) -> None:
+        if self.values.shape != self.x_axis.shape:
+            raise ValueError(
+                f"{self.name}: values shape {self.values.shape} does not match "
+                f"axis shape {self.x_axis.shape}"
+            )
+        if len(self.x_axis) < 2:
+            raise ValueError(f"{self.name}: at least two points are required")
+        if not np.isfinite(self.x_axis).all() or not np.isfinite(self.values).all():
+            raise ValueError(f"{self.name}: axis and values must be finite")
+        if np.any(np.diff(self.x_axis) <= 0):
+            raise ValueError(f"{self.name}: x-axis must be strictly increasing")
+
+    @property
+    def x_min(self) -> float:
+        return float(self.x_axis[0])
+
+    @property
+    def x_max(self) -> float:
+        return float(self.x_axis[-1])
+
+    def interpolate(
+        self,
+        x_query: np.ndarray | float,
+        *,
+        clip: bool = False,
+    ) -> np.ndarray:
+        xq = np.asarray(x_query, dtype=float)
+        valid = np.isfinite(xq) & (xq >= self.x_min) & (xq <= self.x_max)
+        x = np.clip(xq, self.x_min, self.x_max) if clip else xq
+        result = np.interp(x, self.x_axis, self.values)
+        if clip:
+            return np.where(np.isfinite(xq), result, np.nan)
+        return np.where(valid, result, np.nan)
+
+
+@dataclass(frozen=True)
 class BilinearMap:
     x_axis: np.ndarray
     y_axis: np.ndarray
@@ -86,4 +128,3 @@ class BilinearMap:
         z1 = z01 * (1.0 - wx) + z11 * wx
         result = z0 * (1.0 - wy) + z1 * wy
         return np.where(valid, result, np.nan)
-

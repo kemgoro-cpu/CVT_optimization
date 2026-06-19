@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from .io import write_wide_map
-from .maps import BilinearMap
+from .maps import BilinearMap, LinearCurve
 
 RPM_TORQUE_TO_KW = 1.0 / 9549.29658551372
 
@@ -53,6 +53,7 @@ def optimize_cvt_map(
     bsfc_map: BilinearMap,
     columns: ColumnConfig,
     options: OptimizationOptions,
+    max_torque_curve: LinearCurve | None = None,
 ) -> OptimizationResult:
     data = filter_and_validate_drive(drive, columns)
 
@@ -91,6 +92,13 @@ def optimize_cvt_map(
         candidate_torque = p[:, None] / (rpm_candidates[None, :] * RPM_TORQUE_TO_KW)
         candidate_rpm = np.broadcast_to(rpm_candidates[None, :], candidate_torque.shape)
         candidate_bsfc = bsfc_map.interpolate(candidate_rpm, candidate_torque, clip=False)
+        if max_torque_curve is not None:
+            candidate_max_torque = max_torque_curve.interpolate(candidate_rpm, clip=False)
+            candidate_feasible = (
+                np.isfinite(candidate_max_torque)
+                & (candidate_torque <= candidate_max_torque + 1e-9)
+            )
+            candidate_bsfc = np.where(candidate_feasible, candidate_bsfc, np.nan)
         candidate_fuel_gps = candidate_bsfc * p[:, None] / 3600.0
 
         all_nan = np.isnan(candidate_fuel_gps).all(axis=1)
@@ -108,6 +116,11 @@ def optimize_cvt_map(
 
     current_bsfc = bsfc_map.interpolate(current_rpm, current_torque, clip=False)
     current_fuel_gps = current_bsfc * power_kw / 3600.0
+    current_max_torque, current_torque_feasible = torque_feasibility(
+        current_rpm,
+        current_torque,
+        max_torque_curve,
+    )
 
     target_map, coverage_count = aggregate_targets_to_map(
         cvt_map,
@@ -133,11 +146,19 @@ def optimize_cvt_map(
     )
     optimized_bsfc = bsfc_map.interpolate(optimized_rpm, optimized_torque, clip=False)
     optimized_fuel_gps = optimized_bsfc * power_kw / 3600.0
+    optimized_max_torque, optimized_torque_feasible = torque_feasibility(
+        optimized_rpm,
+        optimized_torque,
+        max_torque_curve,
+    )
 
     evaluation = data.copy()
     evaluation["Power_kW"] = power_kw
     evaluation["Current_BSFC_g_per_kWh"] = current_bsfc
     evaluation["Current_Fuel_gps"] = current_fuel_gps
+    evaluation["Current_Max_Torque_Nm"] = current_max_torque
+    evaluation["Current_Torque_Margin_Nm"] = current_max_torque - current_torque
+    evaluation["Current_Torque_Feasible"] = current_torque_feasible
     evaluation["Target_RPM_theoretical"] = target_rpm
     evaluation["Target_Torque_Nm_theoretical"] = target_torque
     evaluation["Target_BSFC_g_per_kWh_theoretical"] = target_bsfc
@@ -146,11 +167,31 @@ def optimize_cvt_map(
     evaluation["Optimized_Map_Torque_Nm"] = optimized_torque
     evaluation["Optimized_Map_BSFC_g_per_kWh"] = optimized_bsfc
     evaluation["Optimized_Map_Fuel_gps"] = optimized_fuel_gps
+    evaluation["Optimized_Max_Torque_Nm"] = optimized_max_torque
+    evaluation["Optimized_Torque_Margin_Nm"] = optimized_max_torque - optimized_torque
+    evaluation["Optimized_Torque_Feasible"] = optimized_torque_feasible
 
     distance_km = integrate_distance_km(speed, dt)
-    current_fuel_g = integrate_fuel_g(current_fuel_gps, dt)
-    optimized_fuel_g = integrate_fuel_g(optimized_fuel_gps, dt)
-    theoretical_fuel_g = integrate_fuel_g(theoretical_fuel_gps, dt)
+    current_valid = active & np.isfinite(current_fuel_gps) & current_torque_feasible
+    optimized_valid = active & np.isfinite(optimized_fuel_gps) & optimized_torque_feasible
+    theoretical_valid = active & np.isfinite(theoretical_fuel_gps)
+    current_fuel_g = integrate_validated_fuel(current_fuel_gps, dt, active, current_valid)
+    optimized_fuel_g = integrate_validated_fuel(
+        optimized_fuel_gps,
+        dt,
+        active,
+        optimized_valid,
+    )
+    theoretical_fuel_g = integrate_validated_fuel(
+        theoretical_fuel_gps,
+        dt,
+        active,
+        theoretical_valid,
+    )
+
+    current_infeasible = active & ~current_torque_feasible
+    optimized_infeasible = active & ~optimized_torque_feasible
+    target_unavailable = active & ~np.isfinite(target_rpm)
 
     summary = {
         "rows_total": int(len(drive)),
@@ -158,6 +199,15 @@ def optimize_cvt_map(
         "active_rows": int(np.count_nonzero(active)),
         "map_cells_total": int(cvt_map.values.size),
         "map_cells_updated": int(np.count_nonzero(coverage_count > 0)),
+        "torque_constraint_applied": max_torque_curve is not None,
+        "current_torque_infeasible_rows": int(np.count_nonzero(current_infeasible)),
+        "optimized_torque_infeasible_rows": int(np.count_nonzero(optimized_infeasible)),
+        "target_unavailable_rows": int(np.count_nonzero(target_unavailable)),
+        "fuel_result_valid": bool(
+            np.isfinite(current_fuel_g)
+            and np.isfinite(optimized_fuel_g)
+            and np.isfinite(theoretical_fuel_g)
+        ),
         "distance_km": distance_km,
         "current_fuel_g": current_fuel_g,
         "optimized_map_fuel_g": optimized_fuel_g,
@@ -223,6 +273,31 @@ def integrate_distance_km(speed_kmh: np.ndarray, dt_seconds: np.ndarray) -> floa
 
 def integrate_fuel_g(fuel_gps: np.ndarray, dt_seconds: np.ndarray) -> float:
     return float(np.nansum(fuel_gps * dt_seconds))
+
+
+def integrate_validated_fuel(
+    fuel_gps: np.ndarray,
+    dt_seconds: np.ndarray,
+    required_rows: np.ndarray,
+    valid_rows: np.ndarray,
+) -> float:
+    if np.any(required_rows & ~valid_rows):
+        return float("nan")
+    return float(np.sum(fuel_gps[required_rows] * dt_seconds[required_rows]))
+
+
+def torque_feasibility(
+    rpm: np.ndarray,
+    torque: np.ndarray,
+    max_torque_curve: LinearCurve | None,
+) -> tuple[np.ndarray, np.ndarray]:
+    if max_torque_curve is None:
+        maximum = np.full_like(np.asarray(torque, dtype=float), np.nan)
+        feasible = np.isfinite(rpm) & np.isfinite(torque)
+        return maximum, feasible
+    maximum = max_torque_curve.interpolate(rpm, clip=False)
+    feasible = np.isfinite(maximum) & np.isfinite(torque) & (torque <= maximum + 1e-9)
+    return maximum, feasible
 
 
 def divide_or_nan(numerator: float, denominator: float) -> float:

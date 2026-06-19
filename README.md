@@ -17,6 +17,8 @@ CVTで回転数を変えても、その瞬間に車両が要求している出�
 燃料消費[g/s] = BSFC[g/kWh] * 出力[kW] / 3600
 ```
 
+候補点は最大トルクカーブ `回転数[rpm] -> 最大トルク[Nm]` と照合します。必要トルクが最大トルクを超える候補は除外し、最終マップに制約外点が残る場合は燃費改善率を無効として警告します。
+
 その後、走行ログ上で求めた最適回転数を速度×アクセル開度のCVTマップ格子へ集約し、更新後のCVTマップとして出力します。
 
 ## 入力ファイル
@@ -63,6 +65,19 @@ Torque,1000,1500,2000,2500,3000,3500
 80,290,245,225,230,250,280
 ```
 
+### エンジン最大トルクカーブ
+
+CSVまたはExcel貼り付け用の2列形式です。
+
+```csv
+Engine_RPM,Max_Torque_Nm
+800,80
+1500,135
+2500,175
+3500,175
+4500,140
+```
+
 ## 使い方
 
 アプリ起動:
@@ -79,7 +94,7 @@ http://localhost:8501
 
 アプリでは、現在のCVT変速線図と燃費率マップをExcelからそのまま貼り付けできます。走行データはCSVまたは`.trn`をアップロードします。
 
-デモデータは `demo_data/` にあります。アプリでは `demo_drive.csv` をアップロードし、`current_cvt_map_for_paste.tsv` と `bsfc_map_for_paste.tsv` を開いて全体をコピーし、それぞれの貼り付け欄に入れてください。
+デモデータは `demo_data/` にあります。アプリでは `demo_drive.csv` をアップロードし、`current_cvt_map_for_paste.tsv`、`bsfc_map_for_paste.tsv`、`max_torque_curve_for_paste.tsv` を開いて全体をコピーし、それぞれの貼り付け欄に入れてください。
 
 サンプル`.trn`の列確認:
 
@@ -94,6 +109,7 @@ rtk python -m cvt_optimizer.cli optimize `
   --drive-data "drive_fuel_mode.trn" `
   --cvt-map "current_cvt_map.csv" `
   --bsfc-map "bsfc_map.csv" `
+  --max-torque-curve "max_torque_curve.csv" `
   --output-dir "out" `
   --torque-col "Engine_Torque"
 ```
@@ -105,6 +121,7 @@ rtk python -m cvt_optimizer.cli optimize `
   --drive-data "drive.csv" `
   --cvt-map "current_cvt_map.csv" `
   --bsfc-map "bsfc_map.csv" `
+  --max-torque-curve "max_torque_curve.csv" `
   --output-dir "out" `
   --mode-col "Fuel_Mode" `
   --mode-value "ECO"

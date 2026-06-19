@@ -95,6 +95,26 @@ def read_wide_map(path: str | Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]
     return x_axis[x_order], y_axis[y_order], values[np.ix_(y_order, x_order)]
 
 
+def read_curve(path: str | Path) -> tuple[np.ndarray, np.ndarray]:
+    """Read a two-column curve CSV such as engine RPM -> maximum torque."""
+    frame = pd.read_csv(path)
+    if frame.shape[1] < 2:
+        raise ValueError(f"Curve needs at least two columns: {path}")
+    x_axis = pd.to_numeric(frame.iloc[:, 0], errors="coerce").to_numpy(dtype=float)
+    values = pd.to_numeric(frame.iloc[:, 1], errors="coerce").to_numpy(dtype=float)
+    valid = np.isfinite(x_axis) & np.isfinite(values)
+    x_axis = x_axis[valid]
+    values = values[valid]
+    if len(x_axis) < 2:
+        raise ValueError(f"Curve contains fewer than two numeric points: {path}")
+    order = np.argsort(x_axis)
+    x_axis = x_axis[order]
+    values = values[order]
+    if np.any(np.diff(x_axis) <= 0):
+        raise ValueError(f"Curve RPM values must be unique: {path}")
+    return x_axis, values
+
+
 def write_wide_map(
     path: str | Path,
     x_axis: np.ndarray,
